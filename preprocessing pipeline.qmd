@@ -1,0 +1,120 @@
+---
+title: "Group Project"
+author: "Emily Braun, Julieta Loizaga, Audri Saulters, Oksana Tkach"
+---
+
+```{r}
+#source data: "https://mengtingwan.github.io/data/goodreads.html"
+```
+
+```{r}
+library(gender)
+library(tidyverse)
+library(jsonlite)
+library(textcat)
+library(dplyr)
+library(SentimentAnalysis)
+```
+
+```{r}
+raw_reviews_poetry <- "goodreads_reviews_poetry.json"
+raw_authors <- "goodreads_book_authors.json"
+raw_books_poetry <-"goodreads_books_poetry.json"
+```
+
+```{r}
+reviews_poetry_df <- stream_in(file(raw_reviews_poetry)) %>%
+  select(1:5)%>%
+  mutate(
+    genre = 'poetry'
+  ) 
+```
+
+```{r}
+books_poetry_df <- stream_in(file(raw_books_poetry))%>%
+  select(25,2,5,9,15) 
+```
+
+```{r}
+authors_df <- stream_in(file(raw_authors))
+```
+
+```{r}
+clean_books_poetry <- books_poetry_df %>%
+  mutate(author_id = map(authors, ~ .x$author_id[.x$role=='']) %>%
+           map_chr(~ paste(., collapse = ", "))) %>%
+  filter(!grepl(",", author_id)) %>%
+  select(1:4, 6)
+  
+```
+
+```{r}
+enriched_review_df <- reviews_poetry_df %>%
+  inner_join(clean_books_poetry) %>%
+  inner_join(authors_df)
+```
+
+```{r}
+enriched_review_df <- enriched_review_df %>%
+  filter(textcat(enriched_review_df$review_text) == 'english')
+```
+
+```{r}
+get_gender <- function(name) {
+    gender_df <- gender(name, method = "ssa")
+    if (nrow(gender_df) == 0){
+      return(NULL)
+      }
+    return(gender_df$gender[1])
+}
+
+enriched_review_df <- enriched_review_df %>%
+  mutate(
+    name_split = strsplit(name, " "),
+    gender = lapply(sapply(name_split, function(x) x[1]), get_gender)
+)
+```
+
+```{r}
+test_gender <- head(enriched_review_df,5) %>%
+  mutate(
+    name_split = strsplit(name, " "),
+    gender = lapply(sapply(name_split, function(x) x[1]), get_gender)
+)
+```
+
+```{r}
+testdf <- enriched_review_df %>%
+  drop_na(gender) %>%
+  mutate(
+    gender = unlist(gender)
+  )
+#write.csv(testdf, "enriched_with_gender.csv")
+```
+
+```{r}
+filtered_df <- testdf %>%
+  filter(nchar(review_text)>100) %>%
+  group_by(book_id) %>%
+  filter(n() >= 10) %>%
+  ungroup()
+```
+
+```{r}
+gender_filtered_df <- filtered_df %>%
+  group_by(gender,author_id) %>%
+  arrange(desc(rank(n()))) #%>%
+  
+  #ungroup()
+```
+
+```{r}
+sentiment_df <- filtered_df %>%
+  mutate(
+    analyzeSentiment(review_text)
+  ) %>%
+  select(2:6,10,14:18)
+
+  saveRDS("sentiment_df")
+
+```

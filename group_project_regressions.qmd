@@ -1,0 +1,112 @@
+```{r}
+require(foreign)
+require(ggplot2)
+require(MASS)
+require(Hmisc)
+require(reshape2)
+library(tidyverse)
+library(brms)
+```
+
+```{r}
+data <- readRDS("sentiment_df")
+```
+
+```{r}
+scale_values <- function(x){(x-min(x))/(max(x)-min(x))}
+data$SentimentGI <- scale_values(data$SentimentGI)
+head(data)
+```
+
+```{r}
+data$SentimentGI[data$SentimentGI == 0] <- 0.000001
+data$SentimentGI[data$SentimentGI == 1] <- 0.999999
+```
+
+```{r}
+data$rating = data$rating+1
+data$rating <- factor(data$rating, ordered = TRUE)
+```
+
+```{r}
+data$gender <- factor(data$gender, levels=c("female", "male"))
+```
+
+```{r}
+rating_vs_gender <- brm(
+  bf(rating ~ gender),
+  data = data,
+  family = cumulative(link = "logit")
+)
+
+summary(rating_vs_gender)
+```
+
+On average, women get lower ratings than men.
+
+```{r}
+conditional_effects(rating_vs_gender)
+```
+
+```{r}
+gender_vs_sentiment <- brm(
+  bf(gender ~ SentimentGI),
+  data = data,
+  family = bernoulli(link = "logit")
+)
+
+summary(gender_vs_sentiment)
+```
+
+Women's reviews are more likely to have lower sentiment scores than men's.
+
+Lower sentiment score in reviews is predictive of the female author's gender, and higher sentiment score in reviews is predictive of the male author's gender.
+
+```{r}
+conditional_effects(gender_vs_sentiment)
+```
+
+```{r}
+data$rating <- as.numeric(as.character(data$rating))
+```
+
+```{r}
+es_vs_rating_gender <- brm(
+  bf(SentimentGI ~ 0 + gender:rating),
+  data = data,
+  family = Beta(),
+  #chains = 4, iter = 2000, warmup = 1000,
+  #cores = 4, seed = 1234, 
+  # Use the cmdstanr backend for Stan because it's faster and more modern than
+  # the default rstan You need to install the cmdstanr package first
+  # (https://mc-stan.org/cmdstanr/) and then run cmdstanr::install_cmdstan() to
+  # install cmdstan on your computer.
+  # backend = "cmdstanr",
+  #file = "model_beta_bayes"  # Save this so it doesn't have to always rerun
+)
+
+summary(es_vs_rating_gender)
+```
+
+The sentiment decreases for female authors even the rating increases, whereas for male authors the sentiment increases as the rating increases.
+
+```{r}
+# TODO: make gender legend and rating on the x-axis
+conditional_effects(es_vs_rating_gender)
+```
+
+```{r}
+rating_vs_sentiment_gender <- brm(
+  bf(rating ~ gender:SentimentGI),
+  data = data,
+  family = cumulative(link = "logit")
+)
+
+summary(rating_vs_sentiment_gender)
+```
+
+For men, there is a weak association of positive sentiment and higher ratings, but for women there’s no association.
+
+```{r}
+conditional_effects(rating_vs_sentiment_gender)
+```
